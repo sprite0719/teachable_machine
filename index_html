@@ -1,0 +1,1344 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Teachable Mario Kart - 體感瑪利歐賽車</title>
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- FontAwesome Icons -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <!-- Google Fonts for Playful Mario Aesthetic -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Fredoka:wght@400;600;700&family=Luckiest+Guy&family=Noto+Sans+TC:wght@500;700;900&display=swap" rel="stylesheet">
+    
+    <!-- TensorFlow.js and Teachable Machine Libraries -->
+    <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@1.3.1/dist/tf.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@teachablemachine/image@0.8.3/dist/teachablemachine-image.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@teachablemachine/pose@0.8.6/dist/teachablemachine-pose.min.js"></script>
+
+    <style>
+        body {
+            font-family: 'Fredoka', 'Noto Sans TC', sans-serif;
+            background-color: #020617;
+            color: #ffffff;
+            overflow: hidden;
+            user-select: none;
+        }
+
+        .font-mario {
+            font-family: 'Luckiest Guy', cursive;
+            letter-spacing: 1px;
+        }
+
+        /* Playful Mario Card Glassmorphism */
+        .mario-card {
+            background: rgba(255, 255, 255, 0.95);
+            border: 4px solid #facc15;
+            box-shadow: 0 8px 0 #ca8a04, 0 12px 24px rgba(0, 0, 0, 0.4);
+            color: #1e293b;
+        }
+
+        .mario-card-dark {
+            background: rgba(15, 23, 42, 0.92);
+            border: 4px solid #ef4444;
+            box-shadow: 0 8px 0 #b91c1c, 0 12px 24px rgba(0, 0, 0, 0.5);
+            color: #ffffff;
+        }
+
+        .mario-btn-yellow {
+            background: linear-gradient(180deg, #fde047 0%, #eab308 100%);
+            border: 3px solid #713f12;
+            box-shadow: 0 6px 0 #854d0e, 0 8px 15px rgba(0, 0, 0, 0.3);
+            color: #422006;
+            text-shadow: 0 1px 0 rgba(255,255,255,0.6);
+        }
+
+        .mario-btn-yellow:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 8px 0 #854d0e, 0 10px 20px rgba(0, 0, 0, 0.3);
+        }
+
+        .mario-btn-red {
+            background: linear-gradient(180deg, #f87171 0%, #dc2626 100%);
+            border: 3px solid #7f1d1d;
+            box-shadow: 0 6px 0 #991b1b, 0 8px 15px rgba(0, 0, 0, 0.3);
+            color: #ffffff;
+            text-shadow: 0 2px 0 #7f1d1d;
+        }
+
+        .mario-btn-red:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 8px 0 #991b1b, 0 10px 20px rgba(0, 0, 0, 0.3);
+        }
+
+        /* Speedometer glowing effects */
+        .text-mario-yellow {
+            color: #facc15;
+            text-shadow: 3px 3px 0 #b45309, -2px -2px 0 #000;
+        }
+        
+        .text-mario-red {
+            color: #ef4444;
+            text-shadow: 3px 3px 0 #991b1b, -2px -2px 0 #000;
+        }
+
+        /* Canvas Tilt Transition */
+        #gameCanvas {
+            transform-origin: center center;
+            transition: transform 0.15s ease-out;
+        }
+
+        /* Boost Overlay */
+        .boost-active-overlay {
+            box-shadow: inset 0 0 120px rgba(59, 130, 246, 0.8), inset 0 0 60px rgba(147, 51, 234, 0.8);
+        }
+
+        @keyframes bounce-slow {
+            0%, 100% { transform: translateY(0); }
+            50% { transform: translateY(-8px); }
+        }
+        .animate-bounce-slow {
+            animation: bounce-slow 2s infinite ease-in-out;
+        }
+    </style>
+</head>
+<body class="w-screen h-screen relative bg-slate-950 overflow-hidden flex flex-col justify-between select-none">
+
+    <!-- MAIN GAME CANVAS CONTAINER -->
+    <div id="canvasContainer" class="absolute inset-0 w-full h-full flex items-center justify-center bg-sky-400 overflow-hidden">
+        <canvas id="gameCanvas" class="w-full h-full object-cover"></canvas>
+        
+        <!-- Boost FX Overlay -->
+        <div id="boostOverlay" class="pointer-events-none absolute inset-0 opacity-0 transition-opacity duration-300 boost-active-overlay bg-blue-600/20"></div>
+    </div>
+
+    <!-- TOP HUD BAR -->
+    <header class="relative z-20 p-4 w-full flex justify-between items-start pointer-events-none">
+        <!-- SPEED & LAP HUD -->
+        <div class="mario-card rounded-3xl p-4 flex items-center space-x-6 border-4 border-yellow-400">
+            <div class="flex items-center space-x-3">
+                <div class="w-12 h-12 rounded-2xl bg-red-500 border-2 border-red-700 flex items-center justify-center text-white text-2xl shadow-md">
+                    <i class="fa-solid fa-tachometer-alt"></i>
+                </div>
+                <div>
+                    <div class="text-xs text-slate-600 font-extrabold uppercase tracking-wider">車速 SPEED</div>
+                    <div class="flex items-baseline space-x-1">
+                        <span id="speedValue" class="text-4xl font-black font-mario text-mario-red">0</span>
+                        <span class="text-sm font-black text-slate-700">KM/H</span>
+                    </div>
+                </div>
+            </div>
+
+            <div class="h-10 w-1 bg-yellow-300 rounded-full"></div>
+
+            <div class="flex items-center space-x-3">
+                <div class="w-12 h-12 rounded-2xl bg-amber-400 border-2 border-amber-600 flex items-center justify-center text-yellow-950 text-2xl shadow-md">
+                    <i class="fa-solid fa-coins animate-bounce-slow"></i>
+                </div>
+                <div>
+                    <div class="text-xs text-slate-600 font-extrabold uppercase tracking-wider">金幣 COINS</div>
+                    <div class="flex items-baseline space-x-1">
+                        <span id="coinValue" class="text-4xl font-black font-mario text-mario-yellow">00</span>
+                    </div>
+                </div>
+            </div>
+
+            <div class="h-10 w-1 bg-yellow-300 rounded-full"></div>
+
+            <div>
+                <div class="text-xs text-slate-600 font-extrabold uppercase tracking-wider">單圈時間 TIME</div>
+                <div id="timerValue" class="text-2xl font-black font-mario text-blue-600">00:00.00</div>
+            </div>
+        </div>
+
+        <!-- CURRENT POSE CONTROL BADGE -->
+        <div id="poseBadgeContainer" class="mario-card rounded-3xl px-6 py-3 flex items-center space-x-4">
+            <div id="poseIconBox" class="w-12 h-12 rounded-2xl bg-blue-500 text-white flex items-center justify-center text-2xl shadow-md border-2 border-blue-700">
+                <i class="fa-solid fa-flag-checkered"></i>
+            </div>
+            <div>
+                <div class="text-xs text-slate-600 font-extrabold uppercase tracking-wider">AI 體感姿勢辨識</div>
+                <div id="poseLabel" class="text-lg font-black text-slate-800">準備開跑！</div>
+            </div>
+        </div>
+    </header>
+
+    <div class="absolute bottom-4 right-4 z-20 w-80 mario-card-dark rounded-3xl p-3 flex flex-col space-y-3 pointer-events-auto">
+        <div class="flex items-center justify-between px-1">
+            <div class="flex items-center space-x-2 text-xs font-black text-yellow-400">
+                <span class="relative flex h-2.5 w-2.5">
+                  <span id="webcamPing" class="animate-ping absolute inline-flex h-full w-full rounded-full bg-yellow-400 opacity-75"></span>
+                  <span class="relative inline-flex rounded-full h-2.5 w-2.5 bg-yellow-500"></span>
+                </span>
+                <span>鏡頭 AI 影像</span>
+            </div>
+            <button id="calibrateBtn" title="校正目前坐姿為正中" class="px-2.5 py-1 text-xs bg-yellow-500 hover:bg-yellow-400 text-slate-950 rounded-xl font-bold transition-all border border-yellow-300 flex items-center gap-1 shadow">
+                <i class="fa-solid fa-crosshairs"></i> 校正姿勢
+            </button>
+        </div>
+
+        <div class="relative w-full h-44 bg-slate-950 rounded-2xl overflow-hidden border-2 border-slate-700 flex items-center justify-center">
+            <div id="webcamContainer" class="w-full h-full flex items-center justify-center relative">
+                <div id="camPlaceholder" class="text-center p-4">
+                    <i class="fa-solid fa-video-slash text-3xl text-slate-600 mb-2"></i>
+                    <p class="text-xs text-slate-500">鏡頭未啟動</p>
+                </div>
+            </div>
+            <canvas id="skeletonCanvas" class="absolute inset-0 w-full h-full pointer-events-none z-10"></canvas>
+            
+            <div id="activeClassTag" class="absolute top-2 left-2 z-20 px-2.5 py-1 rounded-lg text-[10px] font-black bg-red-600 text-white border border-red-400 shadow">
+                姿勢: 前進
+            </div>
+            <div id="calibrationBadge" class="absolute bottom-2 right-2 z-20 px-2 py-0.5 rounded-md text-[9px] font-bold bg-yellow-500 text-slate-950 border border-yellow-300 hidden">
+                已校正基準
+            </div>
+        </div>
+
+        <div class="space-y-1.5 text-xs font-bold">
+            <div>
+                <div class="flex justify-between text-[11px] text-slate-300 mb-0.5">
+                    <span>1. 直立前進</span>
+                    <span id="p1Val" class="text-yellow-400">0%</span>
+                </div>
+                <div class="w-full h-2 bg-slate-800 rounded-full overflow-hidden border border-slate-700">
+                    <div id="p1Bar" class="h-full bg-yellow-400 transition-all duration-75 w-0"></div>
+                </div>
+            </div>
+            <div>
+                <div class="flex justify-between text-[11px] text-slate-300 mb-0.5">
+                    <span>2. 身體左傾 (左轉)</span>
+                    <span id="p2Val" class="text-blue-400">0%</span>
+                </div>
+                <div class="w-full h-2 bg-slate-800 rounded-full overflow-hidden border border-slate-700">
+                    <div id="p2Bar" class="h-full bg-blue-400 transition-all duration-75 w-0"></div>
+                </div>
+            </div>
+            <div>
+                <div class="flex justify-between text-[11px] text-slate-300 mb-0.5">
+                    <span>3. 身體右傾 (右轉)</span>
+                    <span id="p3Val" class="text-blue-400">0%</span>
+                </div>
+                <div class="w-full h-2 bg-slate-800 rounded-full overflow-hidden border border-slate-700">
+                    <div id="p3Bar" class="h-full bg-blue-400 transition-all duration-75 w-0"></div>
+                </div>
+            </div>
+            <div>
+                <div class="flex justify-between text-[11px] text-slate-300 mb-0.5">
+                    <span>4. 雙手舉高 (蘑菇加速 🍄)</span>
+                    <span id="p4Val" class="text-red-400">0%</span>
+                </div>
+                <div class="w-full h-2 bg-slate-800 rounded-full overflow-hidden border border-slate-700">
+                    <div id="p4Bar" class="h-full bg-red-500 transition-all duration-75 w-0"></div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- START / PAUSE / MODEL LOADING OVERLAY -->
+    <div id="startOverlay" class="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/85 backdrop-blur-md p-6">
+        <div class="max-w-xl w-full mario-card rounded-3xl p-8 border-4 border-yellow-400 text-center space-y-6">
+            <div class="inline-flex items-center justify-center w-24 h-24 rounded-3xl bg-red-500 text-white text-5xl shadow-xl border-4 border-white animate-bounce-slow">
+                🍄
+            </div>
+            
+            <div class="space-y-2">
+                <h1 class="text-4xl font-black font-mario text-mario-red tracking-wide">
+                    MARIO KART AI
+                </h1>
+                <p class="text-sm font-extrabold text-slate-700 leading-relaxed">
+                    體感瑪利歐賽車！長賽道升級版！<br>
+                    <span class="text-blue-600">直立</span>: 直線衝刺 | 
+                    <span class="text-blue-600">身體左/右傾</span>: 甩尾轉向 | 
+                    <span class="text-red-600">雙手高舉</span>: 蘑菇噴射加速 🍄
+                </p>
+            </div>
+
+            <div class="bg-amber-100 p-4 rounded-2xl border-2 border-amber-300 space-y-3 text-left">
+                <div class="flex items-center justify-between">
+                    <label class="block text-xs font-black text-slate-800">AI 辨識模式設定 :</label>
+                    <div class="flex space-x-2 text-xs">
+                        <button id="modeAutoBtn" type="button" class="px-3 py-1.5 rounded-xl bg-red-500 text-white font-black border-2 border-red-700 shadow transition-all">
+                            ⚡ 免訓練骨架直測 (推薦)
+                        </button>
+                        <button id="modeTmBtn" type="button" class="px-3 py-1.5 rounded-xl bg-white text-slate-700 font-bold border-2 border-slate-300 transition-all">
+                            Teachable Machine
+                        </button>
+                    </div>
+                </div>
+
+                <div id="tmUrlGroup" class="space-y-1 hidden">
+                    <label class="block text-[11px] font-bold text-slate-700">Teachable Machine 模型網址 :</label>
+                    <input type="text" id="modelUrlInput" value="https://teachablemachine.withgoogle.com/models/pSI4q3hqW/" 
+                        class="w-full bg-white border-2 border-amber-400 rounded-xl px-3 py-2 text-xs text-slate-900 font-mono font-bold focus:outline-none">
+                </div>
+
+                <div class="grid grid-cols-2 gap-3 pt-2 border-t border-amber-300/80 text-xs">
+                    <div>
+                        <div class="flex justify-between text-slate-700 font-bold mb-1">
+                            <span>轉向靈敏度</span>
+                            <span id="tiltSensVal" class="text-red-600 font-black">標準</span>
+                        </div>
+                        <input type="range" id="tiltSensSlider" min="1" max="5" value="3" class="w-full accent-red-500 h-2 bg-amber-200 rounded-lg cursor-pointer">
+                    </div>
+                    <div>
+                        <div class="flex justify-between text-slate-700 font-bold mb-1">
+                            <span>觸發門檻</span>
+                            <span id="threshVal" class="text-red-600 font-black">35%</span>
+                        </div>
+                        <input type="range" id="threshSlider" min="20" max="70" value="35" class="w-full accent-red-500 h-2 bg-amber-200 rounded-lg cursor-pointer">
+                    </div>
+                </div>
+            </div>
+
+            <div class="space-y-3 pt-2">
+                <button id="startBtn" class="w-full py-4 rounded-2xl mario-btn-red text-xl font-black tracking-wider transition-all duration-200 transform hover:scale-[1.02] active:scale-[0.98]">
+                    <i class="fa-solid fa-play mr-2"></i> 啟動鏡頭 & 開啟比賽
+                </button>
+                <button id="keyboardFallbackBtn" class="w-full py-3 rounded-2xl bg-white hover:bg-slate-100 text-slate-800 font-extrabold text-sm border-2 border-slate-300 transition-colors shadow">
+                    <i class="fa-solid fa-keyboard mr-2"></i> 鍵盤試玩 (A/D 轉向，空白鍵 蘑菇加速)
+                </button>
+            </div>
+
+            <div id="statusMessage" class="text-xs font-extrabold text-red-600 min-h-[1.5rem]">
+                準備就緒，請點擊上方按鈕開始賽車！
+            </div>
+        </div>
+    </div>
+
+    <!-- FINISH OVERLAY -->
+    <div id="finishOverlay" class="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/85 backdrop-blur-md p-6 hidden">
+        <div class="max-w-md w-full mario-card rounded-3xl p-8 border-4 border-yellow-400 text-center space-y-6">
+            <div class="inline-flex items-center justify-center w-24 h-24 rounded-3xl bg-yellow-400 text-slate-950 text-5xl border-4 border-white shadow-xl animate-bounce">
+                🏆
+            </div>
+            
+            <div>
+                <h2 class="text-3xl font-black font-mario text-mario-yellow">VICTORY!</h2>
+                <p class="text-sm font-bold text-slate-700 mt-1">恭喜成功征服長賽道挑戰！</p>
+            </div>
+
+            <div class="bg-amber-100 rounded-2xl p-4 border-2 border-amber-300 space-y-3">
+                <div class="flex justify-between items-center text-sm font-bold">
+                    <span class="text-slate-600">完成時間</span>
+                    <span id="finalTime" class="font-mario text-red-600 text-2xl">00:00.00</span>
+                </div>
+                <div class="flex justify-between items-center text-sm font-bold">
+                    <span class="text-slate-600">收集金幣</span>
+                    <span id="finalCoins" class="font-mario text-yellow-600 text-2xl">0 🪙</span>
+                </div>
+                <div class="flex justify-between items-center text-sm font-bold">
+                    <span class="text-slate-600">最高極速</span>
+                    <span id="finalMaxSpeed" class="font-mario text-blue-600 text-2xl">0 KM/H</span>
+                </div>
+            </div>
+
+            <button id="restartBtn" class="w-full py-4 rounded-2xl mario-btn-yellow font-black text-xl transition-transform transform hover:scale-105 active:scale-95">
+                <i class="fa-solid fa-rotate-right mr-2"></i> 再玩一次
+            </button>
+        </div>
+    </div>
+
+    <script>
+        // GLOBAL CONSTANTS & MARIO GAME STATE
+        const ROAD_WIDTH = 2200;
+        const SEGMENT_LENGTH = 200;
+        const RUMBLE_LENGTH = 3;
+        const CAMERA_DEPTH = 0.84;
+        const DRAW_DISTANCE = 200;
+
+        // Mario Kart Vehicle Dynamics
+        const MAX_SPEED_NORMAL = 13000;
+        const MAX_SPEED_BOOST = 24000;
+        const ACCEL_NORMAL = 200;
+        const ACCEL_BOOST = 550;
+        const CENTRIFUGAL_FORCE = 0.35;
+
+        // Game State Variables
+        let canvas, ctx;
+        let skeletonCanvas, skeletonCtx;
+        let segments = [];
+        let trackLength = 0;
+        let playerX = 0;
+        let playerZ = 0;
+        let speed = 0;
+        let coinCount = 0;
+        let maxSpeedReached = 0;
+        
+        let isGameRunning = false;
+        let lapStartTime = 0;
+        let currentLapTime = 0;
+        let isFinished = false;
+
+        // AI Model & Pose Control State
+        let model, webcam;
+        let useAutoPose = true;
+        let modelType = 'pose';
+        let currentClassIndex = 0; // 0: Straight, 1: Left, 2: Right, 3: Mushroom Boost
+        let targetSteer = 0;
+        let currentSteer = 0;
+        let isBoostActive = false;
+        
+        let isPredicting = false;
+        let lastPredictTime = 0;
+        const PREDICT_INTERVAL = 50;
+
+        // Pose Calibration Baseline (Center Offset)
+        let baselineNoseX = 0.5;
+        let isCalibrated = false;
+
+        // Settings
+        let tiltSensitivity = 1.0;
+        let confidenceThreshold = 0.35;
+
+        // Particles & Decorative Props
+        let speedLines = [];
+        let boostParticles = [];
+        let clouds = [];
+
+        // Manual controls
+        const keys = { left: false, right: false, boost: false };
+
+        function easeIn(a, b, percent) {
+            return a + (b - a) * Math.pow(percent, 2);
+        }
+
+        function easeInOut(a, b, percent) {
+            return a + (b - a) * ((-Math.cos(percent * Math.PI) / 2) + 0.5);
+        }
+
+        function lastY() {
+            return segments.length === 0 ? 0 : segments[segments.length - 1].p2.world.y;
+        }
+
+        function addSegment(curve, y) {
+            const n = segments.length;
+            
+            // Random roadside Mario props (0: None, 1: Green Pipe, 2: Question Block, 3: Coin)
+            let propType = 0;
+            if (n % 12 === 0 && n > 20) {
+                propType = (n % 24 === 0) ? 1 : 2; // Green Pipe or Block
+            } else if (n % 4 === 0 && n > 15) {
+                propType = 3; // Coin
+            }
+
+            segments.push({
+                index: n,
+                p1: { world: { x: 0, y: lastY(), z: n * SEGMENT_LENGTH }, camera: { x: 0, y: 0, z: 0 }, screen: { x: 0, y: 0, w: 0 } },
+                p2: { world: { x: 0, y: y, z: (n + 1) * SEGMENT_LENGTH }, camera: { x: 0, y: 0, z: 0 }, screen: { x: 0, y: 0, w: 0 } },
+                curve: curve,
+                propType: propType,
+                hasCoin: (propType === 3),
+                coinCollected: false
+            });
+        }
+
+        function addRoad(enter, hold, leave, curve, hill) {
+            const startY = lastY();
+            const endY = startY + (hill * SEGMENT_LENGTH);
+            const total = enter + hold + leave;
+            for (let n = 0; n < enter; n++) {
+                addSegment(easeIn(0, curve, n / enter), easeInOut(startY, endY, n / total));
+            }
+            for (let n = 0; n < hold; n++) {
+                addSegment(curve, easeInOut(startY, endY, (enter + n) / total));
+            }
+            for (let n = 0; n < leave; n++) {
+                addSegment(easeInOut(curve, 0, n / leave), easeInOut(startY, endY, (enter + hold + n) / total));
+            }
+        }
+
+        function createTrack() {
+            segments = [];
+            
+            // Build Extended Mario Circuit with rich variety (~1300 segments total)
+            // Section 1: Start Straightaway & Warm-up (起跑大直線與溫和彎道)
+            addRoad(50, 80, 50, 0, 0);          
+            addRoad(40, 60, 40, 2.0, 10);       
+
+            // Section 2: Rolling Hills & Sharp Downhill (連續高低丘陵坡道)
+            addRoad(40, 50, 40, -3.2, -18);     
+            addRoad(30, 40, 30, 0, 15);         
+            addRoad(40, 60, 40, 2.8, -12);      
+
+            // Section 3: S-Curves Drift Zone (S 型甩尾彎道區)
+            addRoad(30, 50, 30, -3.5, 0);       
+            addRoad(30, 50, 30, 3.8, 0);        
+            addRoad(30, 50, 30, -3.0, 0);       
+
+            // Section 4: Mountain Climb & Giant Hairpin Turn (爬山與巨型 180 度髮夾彎)
+            addRoad(60, 80, 60, 0, 25);         
+            addRoad(40, 90, 40, -4.5, 0);       
+            addRoad(50, 60, 50, 0, -25);        
+
+            // Section 5: High-Speed Canyon Straight (峽谷高速爆發直線)
+            addRoad(40, 100, 40, 0, 0);         
+
+            // Section 6: Double Hairpin Challenge (雙重髮夾彎挑戰區)
+            addRoad(30, 60, 30, 4.2, 8);        
+            addRoad(20, 30, 20, -1.0, -8);      
+            addRoad(30, 60, 30, -4.2, 0);       
+
+            // Section 7: Final Chicane & Sprint Finish (終點前減速彎與終點衝刺)
+            addRoad(30, 40, 30, 2.2, 0);        
+            addRoad(30, 40, 30, -2.2, 0);       
+            addRoad(50, 120, 50, 0, 0);         // Long final sprint straight
+
+            trackLength = segments.length * SEGMENT_LENGTH;
+        }
+
+        window.addEventListener('DOMContentLoaded', () => {
+            initCanvas();
+            createTrack();
+            initClouds();
+            initParticles();
+            setupEventListeners();
+            requestAnimationFrame(gameLoop);
+        });
+
+        function initCanvas() {
+            canvas = document.getElementById('gameCanvas');
+            ctx = canvas.getContext('2d');
+
+            skeletonCanvas = document.getElementById('skeletonCanvas');
+            skeletonCtx = skeletonCanvas.getContext('2d');
+
+            resizeCanvas();
+            window.addEventListener('resize', resizeCanvas);
+        }
+
+        function resizeCanvas() {
+            canvas.width = window.innerWidth;
+            canvas.height = window.innerHeight;
+
+            if (skeletonCanvas) {
+                skeletonCanvas.width = skeletonCanvas.clientWidth || 280;
+                skeletonCanvas.height = skeletonCanvas.clientHeight || 170;
+            }
+        }
+
+        function initClouds() {
+            clouds = [];
+            for (let i = 0; i < 12; i++) {
+                clouds.push({
+                    x: Math.random() * 2000 - 1000,
+                    y: 40 + Math.random() * 120,
+                    scale: 0.6 + Math.random() * 0.8
+                });
+            }
+        }
+
+        async function initTeachableMachine(modelUrl) {
+            const statusMsg = document.getElementById('statusMessage');
+
+            try {
+                if (useAutoPose) {
+                    statusMsg.innerText = '正在初始化原生 AI 骨架追蹤引擎...';
+                    model = await tmPose.load(
+                        'https://teachablemachine.withgoogle.com/models/pSI4q3hqW/model.json',
+                        'https://teachablemachine.withgoogle.com/models/pSI4q3hqW/metadata.json'
+                    ).catch(() => null);
+                    modelType = 'pose';
+                } else {
+                    statusMsg.innerText = '正在載入 Teachable Machine 模型...';
+                    if (!modelUrl.endsWith('/')) modelUrl += '/';
+                    const modelPath = modelUrl + 'model.json';
+                    const metadataPath = modelUrl + 'metadata.json';
+
+                    try {
+                        model = await tmPose.load(modelPath, metadataPath);
+                        modelType = 'pose';
+                    } catch (e1) {
+                        model = await tmImage.load(modelPath, metadataPath);
+                        modelType = 'image';
+                    }
+                }
+
+                statusMsg.innerText = '正在啟動攝影機...';
+
+                const flip = true; 
+                webcam = new tmPose.Webcam(280, 280, flip);
+
+                await webcam.setup(); 
+                await webcam.play();
+                
+                const webcamContainer = document.getElementById('webcamContainer');
+                webcamContainer.innerHTML = '';
+                webcamContainer.appendChild(webcam.canvas);
+                webcam.canvas.className = "w-full h-full object-cover rounded-xl";
+
+                webcamContainer.appendChild(skeletonCanvas);
+                resizeCanvas();
+
+                statusMsg.innerText = 'AI 瑪利歐賽車準備開跑！';
+                
+                document.getElementById('startOverlay').classList.add('hidden');
+                startGame();
+
+                requestAnimationFrame(predictLoop);
+
+            } catch (err) {
+                console.error("TM Load Error:", err);
+                statusMsg.innerText = '載入鏡頭失敗，請確認鏡頭權限或點擊鍵盤試玩。';
+            }
+        }
+
+        async function predictLoop(timestamp) {
+            if (webcam && webcam.canvas) {
+                webcam.update();
+
+                if (!isPredicting && (timestamp - lastPredictTime >= PREDICT_INTERVAL)) {
+                    isPredicting = true;
+                    lastPredictTime = timestamp || performance.now();
+                    try {
+                        await predict();
+                    } catch (e) {
+                        console.warn("Skip prediction frame:", e);
+                    } finally {
+                        isPredicting = false;
+                    }
+                }
+            }
+            requestAnimationFrame(predictLoop);
+        }
+
+        async function predict() {
+            if (!webcam) return;
+
+            let poseResult = null;
+            let predictions = [];
+
+            if (modelType === 'pose' && model) {
+                const { pose, posenetOutput } = await model.estimatePose(webcam.canvas);
+                poseResult = pose;
+                if (!useAutoPose) {
+                    predictions = await model.predict(posenetOutput);
+                }
+            } else if (modelType === 'image' && model) {
+                predictions = await model.predict(webcam.canvas);
+            }
+
+            let probs = [0, 0, 0, 0];
+            let autoDetectedClass = 0;
+
+            if (poseResult && poseResult.keypoints) {
+                const keypointAnalysis = analyzePoseKeypoints(poseResult.keypoints);
+                autoDetectedClass = keypointAnalysis.detectedClass;
+                drawSkeletonOverlay(poseResult.keypoints, keypointAnalysis);
+            } else {
+                clearSkeletonOverlay();
+            }
+
+            if (useAutoPose || predictions.length === 0) {
+                probs[autoDetectedClass] = 0.95;
+            } else {
+                predictions.forEach((p, index) => {
+                    const label = (p.className || '').toLowerCase();
+                    const prob = p.probability;
+
+                    if (label.match(/1|straight|center|直/i)) probs[0] = prob;
+                    else if (label.match(/2|left|lean left|左/i)) probs[1] = prob;
+                    else if (label.match(/3|right|lean right|右/i)) probs[2] = prob;
+                    else if (label.match(/4|boost|up|hand|舉|手|抬|蘑菇/i)) probs[3] = prob;
+                    else if (index < 4) probs[index] = prob;
+                });
+
+                const maxTMProb = Math.max(...probs);
+                if (maxTMProb < confidenceThreshold && autoDetectedClass !== 0) {
+                    probs[autoDetectedClass] = 0.85;
+                }
+            }
+
+            // Update UI Probability Bars
+            document.getElementById('p1Bar').style.width = `${(probs[0] * 100).toFixed(0)}%`;
+            document.getElementById('p1Val').innerText = `${(probs[0] * 100).toFixed(0)}%`;
+            document.getElementById('p2Bar').style.width = `${(probs[1] * 100).toFixed(0)}%`;
+            document.getElementById('p2Val').innerText = `${(probs[1] * 100).toFixed(0)}%`;
+            document.getElementById('p3Bar').style.width = `${(probs[2] * 100).toFixed(0)}%`;
+            document.getElementById('p3Val').innerText = `${(probs[2] * 100).toFixed(0)}%`;
+            document.getElementById('p4Bar').style.width = `${(probs[3] * 100).toFixed(0)}%`;
+            document.getElementById('p4Val').innerText = `${(probs[3] * 100).toFixed(0)}%`;
+
+            let maxProb = 0;
+            let bestIndex = 0;
+            for (let i = 0; i < probs.length; i++) {
+                if (probs[i] > maxProb) {
+                    maxProb = probs[i];
+                    bestIndex = i;
+                }
+            }
+
+            currentClassIndex = (maxProb >= confidenceThreshold) ? bestIndex : 0;
+            updateControlStates();
+        }
+
+        function analyzePoseKeypoints(keypoints) {
+            const nose = keypoints[0];
+            const lShoulder = keypoints[5];
+            const rShoulder = keypoints[6];
+            const lWrist = keypoints[9];
+            const rWrist = keypoints[10];
+
+            let detectedClass = 0;
+            let tiltAngle = 0;
+            let handsRaised = false;
+
+            if (nose && nose.score > 0.3) {
+                const noseX = nose.position.x / (webcam.canvas ? webcam.canvas.width : 280);
+                const rawOffset = (noseX - baselineNoseX); 
+                tiltAngle = rawOffset * tiltSensitivity * 3.5;
+
+                if (tiltAngle < -0.22) {
+                    detectedClass = 1; // Left Lean
+                } else if (tiltAngle > 0.22) {
+                    detectedClass = 2; // Right Lean
+                }
+            }
+
+            const shoulderAvgY = (lShoulder && rShoulder) 
+                ? (lShoulder.position.y + rShoulder.position.y) / 2 
+                : (webcam.canvas ? webcam.canvas.height * 0.5 : 140);
+
+            const handsUpLeft = lWrist && lWrist.score > 0.25 && lWrist.position.y < shoulderAvgY * 0.85;
+            const handsUpRight = rWrist && rWrist.score > 0.25 && rWrist.position.y < shoulderAvgY * 0.85;
+
+            if (handsUpLeft || handsUpRight) {
+                handsRaised = true;
+                detectedClass = 3; // Mushroom Boost!
+            }
+
+            return { detectedClass, tiltAngle, handsRaised, nose };
+        }
+
+        function drawSkeletonOverlay(keypoints, analysis) {
+            if (!skeletonCtx || !skeletonCanvas) return;
+
+            const w = skeletonCanvas.width;
+            const h = skeletonCanvas.height;
+            const scaleX = w / 280;
+            const scaleY = h / 280;
+
+            skeletonCtx.clearRect(0, 0, w, h);
+
+            skeletonCtx.strokeStyle = 'rgba(250, 204, 21, 0.4)';
+            skeletonCtx.lineWidth = 2;
+            skeletonCtx.setLineDash([4, 4]);
+            skeletonCtx.beginPath();
+            skeletonCtx.moveTo(baselineNoseX * w, 0);
+            skeletonCtx.lineTo(baselineNoseX * w, h);
+            skeletonCtx.stroke();
+            skeletonCtx.setLineDash([]);
+
+            const color = analysis.handsRaised ? '#ef4444' : (analysis.detectedClass !== 0 ? '#3b82f6' : '#facc15');
+            skeletonCtx.strokeStyle = color;
+            skeletonCtx.fillStyle = color;
+            skeletonCtx.lineWidth = 3;
+
+            keypoints.forEach(kp => {
+                if (kp.score > 0.3) {
+                    const x = kp.position.x * scaleX;
+                    const y = kp.position.y * scaleY;
+                    skeletonCtx.beginPath();
+                    skeletonCtx.arc(x, y, 4, 0, Math.PI * 2);
+                    skeletonCtx.fill();
+                }
+            });
+        }
+
+        function clearSkeletonOverlay() {
+            if (skeletonCtx) skeletonCtx.clearRect(0, 0, skeletonCanvas.width, skeletonCanvas.height);
+        }
+
+        function calibrateCenter() {
+            if (webcam && webcam.canvas && modelType === 'pose' && model) {
+                model.estimatePose(webcam.canvas).then(({ pose }) => {
+                    if (pose && pose.keypoints && pose.keypoints[0] && pose.keypoints[0].score > 0.3) {
+                        baselineNoseX = pose.keypoints[0].position.x / webcam.canvas.width;
+                        isCalibrated = true;
+                        const badge = document.getElementById('calibrationBadge');
+                        badge.classList.remove('hidden');
+                        badge.innerText = "已校正正中姿勢";
+                        setTimeout(() => badge.classList.add('hidden'), 2500);
+                    }
+                });
+            }
+        }
+
+        function updateControlStates() {
+            const poseLabel = document.getElementById('poseLabel');
+            const poseIconBox = document.getElementById('poseIconBox');
+            const activeClassTag = document.getElementById('activeClassTag');
+            const boostOverlay = document.getElementById('boostOverlay');
+
+            targetSteer = 0;
+            isBoostActive = false;
+
+            if (keys.left) targetSteer = -1;
+            else if (keys.right) targetSteer = 1;
+            if (keys.boost) isBoostActive = true;
+
+            if (!keys.left && !keys.right && !keys.boost) {
+                switch (currentClassIndex) {
+                    case 0:
+                        targetSteer = 0;
+                        poseLabel.innerText = "直立前進";
+                        poseIconBox.innerHTML = `<i class="fa-solid fa-angles-up"></i>`;
+                        poseIconBox.className = "w-12 h-12 rounded-2xl bg-yellow-400 text-slate-950 flex items-center justify-center text-2xl font-black shadow border-2 border-yellow-600";
+                        activeClassTag.innerText = "姿勢: 直線衝刺";
+                        activeClassTag.className = "absolute top-2 left-2 px-2.5 py-1 rounded-lg text-[10px] font-black bg-yellow-400 text-slate-950 border border-yellow-300 shadow";
+                        break;
+                    case 1:
+                        targetSteer = -1;
+                        poseLabel.innerText = "甩尾左轉 ◄";
+                        poseIconBox.innerHTML = `<i class="fa-solid fa-arrow-left"></i>`;
+                        poseIconBox.className = "w-12 h-12 rounded-2xl bg-blue-500 text-white flex items-center justify-center text-2xl font-black shadow border-2 border-blue-700 animate-pulse";
+                        activeClassTag.innerText = "姿勢: 左傾過彎 ◄";
+                        activeClassTag.className = "absolute top-2 left-2 px-2.5 py-1 rounded-lg text-[10px] font-black bg-blue-600 text-white border border-blue-400 shadow";
+                        break;
+                    case 2:
+                        targetSteer = 1;
+                        poseLabel.innerText = "甩尾右轉 ►";
+                        poseIconBox.innerHTML = `<i class="fa-solid fa-arrow-right"></i>`;
+                        poseIconBox.className = "w-12 h-12 rounded-2xl bg-blue-500 text-white flex items-center justify-center text-2xl font-black shadow border-2 border-blue-700 animate-pulse";
+                        activeClassTag.innerText = "姿勢: 右傾過彎 ►";
+                        activeClassTag.className = "absolute top-2 left-2 px-2.5 py-1 rounded-lg text-[10px] font-black bg-blue-600 text-white border border-blue-400 shadow";
+                        break;
+                    case 3:
+                        isBoostActive = true;
+                        poseLabel.innerText = "蘑菇噴射加速 🍄!!";
+                        poseIconBox.innerHTML = `🍄`;
+                        poseIconBox.className = "w-12 h-12 rounded-2xl bg-red-500 text-white flex items-center justify-center text-2xl font-black shadow border-2 border-red-700 animate-bounce";
+                        activeClassTag.innerText = "姿勢: 蘑菇加速 🍄";
+                        activeClassTag.className = "absolute top-2 left-2 px-2.5 py-1 rounded-lg text-[10px] font-black bg-red-600 text-white border border-red-400 shadow";
+                        break;
+                }
+            }
+
+            if (isBoostActive) {
+                boostOverlay.classList.remove('opacity-0');
+            } else {
+                boostOverlay.classList.add('opacity-0');
+            }
+        }
+
+        function setupEventListeners() {
+            const modeAutoBtn = document.getElementById('modeAutoBtn');
+            const modeTmBtn = document.getElementById('modeTmBtn');
+            const tmUrlGroup = document.getElementById('tmUrlGroup');
+
+            modeAutoBtn.addEventListener('click', () => {
+                useAutoPose = true;
+                modeAutoBtn.className = "px-3 py-1.5 rounded-xl bg-red-500 text-white font-black border-2 border-red-700 shadow transition-all";
+                modeTmBtn.className = "px-3 py-1.5 rounded-xl bg-white text-slate-700 font-bold border-2 border-slate-300 transition-all";
+                tmUrlGroup.classList.add('hidden');
+            });
+
+            modeTmBtn.addEventListener('click', () => {
+                useAutoPose = false;
+                modeTmBtn.className = "px-3 py-1.5 rounded-xl bg-red-500 text-white font-black border-2 border-red-700 shadow transition-all";
+                modeAutoBtn.className = "px-3 py-1.5 rounded-xl bg-white text-slate-700 font-bold border-2 border-slate-300 transition-all";
+                tmUrlGroup.classList.remove('hidden');
+            });
+
+            const tiltSensSlider = document.getElementById('tiltSensSlider');
+            const tiltSensVal = document.getElementById('tiltSensVal');
+            tiltSensSlider.addEventListener('input', (e) => {
+                const val = parseInt(e.target.value);
+                tiltSensitivity = val * 0.4;
+                const labels = ['低', '中低', '標準', '高', '超靈敏'];
+                tiltSensVal.innerText = labels[val - 1];
+            });
+
+            const threshSlider = document.getElementById('threshSlider');
+            const threshVal = document.getElementById('threshVal');
+            threshSlider.addEventListener('input', (e) => {
+                confidenceThreshold = parseInt(e.target.value) / 100;
+                threshVal.innerText = `${e.target.value}%`;
+            });
+
+            document.getElementById('calibrateBtn').addEventListener('click', calibrateCenter);
+
+            document.getElementById('startBtn').addEventListener('click', () => {
+                const url = document.getElementById('modelUrlInput').value.trim();
+                initTeachableMachine(url);
+            });
+
+            document.getElementById('keyboardFallbackBtn').addEventListener('click', () => {
+                document.getElementById('startOverlay').classList.add('hidden');
+                startGame();
+            });
+
+            document.getElementById('restartBtn').addEventListener('click', () => {
+                document.getElementById('finishOverlay').classList.add('hidden');
+                startGame();
+            });
+
+            window.addEventListener('keydown', (e) => {
+                if (e.key === 'ArrowLeft' || e.key === 'a' || e.key === 'A') keys.left = true;
+                if (e.key === 'ArrowRight' || e.key === 'd' || e.key === 'D') keys.right = true;
+                if (e.key === ' ' || e.key === 'ArrowUp' || e.key === 'w' || e.key === 'W') keys.boost = true;
+                updateControlStates();
+            });
+
+            window.addEventListener('keyup', (e) => {
+                if (e.key === 'ArrowLeft' || e.key === 'a' || e.key === 'A') keys.left = false;
+                if (e.key === 'ArrowRight' || e.key === 'd' || e.key === 'D') keys.right = false;
+                if (e.key === ' ' || e.key === 'ArrowUp' || e.key === 'w' || e.key === 'W') keys.boost = false;
+                updateControlStates();
+            });
+        }
+
+        function startGame() {
+            playerX = 0;
+            playerZ = 0;
+            speed = 0;
+            coinCount = 0;
+            maxSpeedReached = 0;
+            isGameRunning = true;
+            isFinished = false;
+            lapStartTime = performance.now();
+            document.getElementById('coinValue').innerText = '00';
+            
+            segments.forEach(s => s.coinCollected = false);
+        }
+
+        function initParticles() {
+            speedLines = [];
+            for (let i = 0; i < 40; i++) {
+                speedLines.push({
+                    x: (Math.random() - 0.5) * canvas.width * 2,
+                    y: (Math.random() - 0.5) * canvas.height * 2,
+                    z: Math.random() * 1000,
+                    length: 20 + Math.random() * 40
+                });
+            }
+            boostParticles = [];
+        }
+
+        function gameLoop() {
+            const dt = 1 / 60;
+
+            if (isGameRunning && !isFinished) {
+                updatePhysics(dt);
+                updateTimer();
+            }
+
+            renderMarioCircuit();
+            updateAndRenderParticles(dt);
+
+            requestAnimationFrame(gameLoop);
+        }
+
+        function updatePhysics(dt) {
+            const currentMaxSpeed = isBoostActive ? MAX_SPEED_BOOST : MAX_SPEED_NORMAL;
+            const accel = isBoostActive ? ACCEL_BOOST : ACCEL_NORMAL;
+
+            speed += accel;
+            if (speed > currentMaxSpeed) speed -= 200;
+
+            currentSteer += (targetSteer - currentSteer) * 0.15;
+            playerX += currentSteer * (speed / MAX_SPEED_NORMAL) * 1.8 * dt;
+
+            // Centrifugal force calculation
+            const currentSegIndex = Math.floor(playerZ / SEGMENT_LENGTH) % segments.length;
+            const currentSeg = segments[currentSegIndex];
+            playerX -= currentSeg.curve * (speed / MAX_SPEED_NORMAL) * CENTRIFUGAL_FORCE * dt;
+
+            // Road Edge Boundary
+            const ROAD_EDGE_LIMIT = 0.90;
+            if (playerX < -ROAD_EDGE_LIMIT) {
+                playerX = -ROAD_EDGE_LIMIT;
+                speed = Math.max(1000, speed - 150);
+            } else if (playerX > ROAD_EDGE_LIMIT) {
+                playerX = ROAD_EDGE_LIMIT;
+                speed = Math.max(1000, speed - 150);
+            }
+
+            // Coin Collection Logic
+            if (currentSeg.hasCoin && !currentSeg.coinCollected && Math.abs(playerX) < 0.4) {
+                currentSeg.coinCollected = true;
+                coinCount += 1;
+                document.getElementById('coinValue').innerText = coinCount.toString().padStart(2, '0');
+            }
+
+            playerZ += speed * dt;
+            if (speed > maxSpeedReached) maxSpeedReached = speed;
+
+            document.getElementById('speedValue').innerText = Math.floor(speed / 100);
+
+            if (playerZ >= trackLength) finishRace();
+        }
+
+        function updateTimer() {
+            currentLapTime = performance.now() - lapStartTime;
+            const mins = Math.floor(currentLapTime / 60000);
+            const secs = Math.floor((currentLapTime % 60000) / 1000);
+            const ms = Math.floor((currentLapTime % 1000) / 10);
+
+            document.getElementById('timerValue').innerText = 
+                `${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}.${ms.toString().padStart(2, '0')}`;
+        }
+
+        function finishRace() {
+            isFinished = true;
+            isGameRunning = false;
+            document.getElementById('finalTime').innerText = document.getElementById('timerValue').innerText;
+            document.getElementById('finalCoins').innerText = `${coinCount} 🪙`;
+            document.getElementById('finalMaxSpeed').innerText = `${Math.floor(maxSpeedReached / 100)} KM/H`;
+            document.getElementById('finishOverlay').classList.remove('hidden');
+        }
+
+        function renderMarioCircuit() {
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+            // Sunny Sky Background
+            const skyGradient = ctx.createLinearGradient(0, 0, 0, canvas.height / 2);
+            skyGradient.addColorStop(0, '#38bdf8');
+            skyGradient.addColorStop(1, '#bae6fd');
+            ctx.fillStyle = skyGradient;
+            ctx.fillRect(0, 0, canvas.width, canvas.height / 2);
+
+            // Sky Clouds
+            ctx.fillStyle = 'rgba(255, 255, 255, 0.85)';
+            clouds.forEach(c => {
+                ctx.beginPath();
+                ctx.arc(canvas.width / 2 + c.x, c.y, 25 * c.scale, 0, Math.PI * 2);
+                ctx.arc(canvas.width / 2 + c.x + 20 * c.scale, c.y - 10 * c.scale, 30 * c.scale, 0, Math.PI * 2);
+                ctx.arc(canvas.width / 2 + c.x + 45 * c.scale, c.y, 22 * c.scale, 0, Math.PI * 2);
+                ctx.fill();
+            });
+
+            if (segments.length === 0) return;
+
+            const baseIndex = Math.floor(playerZ / SEGMENT_LENGTH) % segments.length;
+            const baseSegment = segments[baseIndex];
+            const percent = (playerZ % SEGMENT_LENGTH) / SEGMENT_LENGTH;
+            const playerY = baseSegment.p1.world.y + (baseSegment.p2.world.y - baseSegment.p1.world.y) * percent;
+            const cameraY = playerY + 1000;
+
+            let x = 0;
+            let dx = 0;
+            let maxY = canvas.height;
+
+            // Render Track Segments
+            for (let n = 0; n < DRAW_DISTANCE; n++) {
+                const segment = segments[(baseSegment.index + n) % segments.length];
+                const looped = segment.index < baseSegment.index;
+                const cameraZOffset = playerZ - (looped ? trackLength : 0);
+
+                project(segment.p1, (-playerX * ROAD_WIDTH) - x, cameraY, cameraZOffset, CAMERA_DEPTH, canvas.width, canvas.height, ROAD_WIDTH);
+                project(segment.p2, (-playerX * ROAD_WIDTH) - x - dx, cameraY, cameraZOffset, CAMERA_DEPTH, canvas.width, canvas.height, ROAD_WIDTH);
+
+                x += dx;
+                dx += segment.curve;
+
+                if (segment.p1.camera.z <= CAMERA_DEPTH || segment.p2.screen.y >= maxY) continue;
+
+                renderSegment(ctx, canvas.width, segment, isBoostActive);
+                maxY = segment.p1.screen.y;
+            }
+
+            // Render Props from Back to Front
+            for (let n = DRAW_DISTANCE - 1; n > 0; n--) {
+                const segment = segments[(baseSegment.index + n) % segments.length];
+                renderRoadProps(ctx, segment);
+            }
+
+            renderMarioKartCar(ctx);
+        }
+
+        function project(p, cameraX, cameraY, cameraZOffset, cameraDepth, width, height, roadWidth) {
+            p.camera.x = cameraX;
+            p.camera.y = p.world.y - cameraY;
+            p.camera.z = p.world.z - cameraZOffset;
+
+            if (p.camera.z <= cameraDepth) {
+                p.screen.x = width / 2;
+                p.screen.y = height;
+                p.screen.w = width;
+                return;
+            }
+
+            const scale = cameraDepth / p.camera.z;
+            p.screen.x = Math.round((width / 2) + (scale * p.camera.x * width / 2));
+            p.screen.y = Math.round((height / 2) - (scale * p.camera.y * height / 2));
+            p.screen.w = Math.round(scale * roadWidth * width / 2);
+        }
+
+        function renderSegment(ctx, width, segment, isBoost) {
+            const p1 = segment.p1.screen;
+            const p2 = segment.p2.screen;
+
+            const isEven = (Math.floor(segment.index / RUMBLE_LENGTH) % 2 === 0);
+            
+            const grassColor = isEven ? '#22c55e' : '#16a34a';
+            const rumbleColor = isEven ? '#ef4444' : '#ffffff';
+            const roadColor = isEven ? '#334155' : '#1e293b';
+            const laneColor = isEven ? '#facc15' : 'transparent';
+
+            // Grass
+            ctx.fillStyle = grassColor;
+            ctx.fillRect(0, p2.y, width, Math.max(0, p1.y - p2.y));
+
+            // Rumble Strips
+            const r1 = p1.w * 0.16;
+            const r2 = p2.w * 0.16;
+            drawPolygon(ctx, p1.x - p1.w - r1, p1.y, p1.x - p1.w, p1.y, p2.x - p2.w, p2.y, p2.x - p2.w - r2, p2.y, rumbleColor);
+            drawPolygon(ctx, p1.x + p1.w, p1.y, p1.x + p1.w + r1, p1.y, p2.x + p2.w + r2, p2.y, p2.x + p2.w, p2.y, rumbleColor);
+
+            // Road
+            drawPolygon(ctx, p1.x - p1.w, p1.y, p1.x + p1.w, p1.y, p2.x + p2.w, p2.y, p2.x - p2.w, p2.y, roadColor);
+
+            // Center Lane Lines
+            if (laneColor !== 'transparent') {
+                const l1 = p1.w * 0.03;
+                const l2 = p2.w * 0.03;
+                drawPolygon(ctx, p1.x - l1, p1.y, p1.x + l1, p1.y, p2.x + l2, p2.y, p2.x - l2, p2.y, laneColor);
+            }
+        }
+
+        function drawPolygon(ctx, x1, y1, x2, y2, x3, y3, x4, y4, color) {
+            ctx.fillStyle = color;
+            ctx.beginPath();
+            ctx.moveTo(x1, y1);
+            ctx.lineTo(x2, y2);
+            ctx.lineTo(x3, y3);
+            ctx.lineTo(x4, y4);
+            ctx.closePath();
+            ctx.fill();
+        }
+
+        function renderRoadProps(ctx, segment) {
+            const p = segment.p1.screen;
+            
+            if (segment.p1.camera.z <= CAMERA_DEPTH) return;
+            if (p.w <= 0 || p.y < 0 || p.y > canvas.height + 300) return;
+
+            // Draw Coin
+            if (segment.hasCoin && !segment.coinCollected) {
+                const coinX = p.x;
+                const coinY = p.y - p.w * 0.12;
+                const coinRadius = Math.max(2, p.w * 0.08);
+
+                ctx.save();
+                ctx.fillStyle = '#facc15';
+                ctx.strokeStyle = '#ca8a04';
+                ctx.lineWidth = Math.max(1, coinRadius * 0.2);
+                ctx.beginPath();
+                ctx.arc(coinX, coinY, coinRadius, 0, Math.PI * 2);
+                ctx.fill();
+                ctx.stroke();
+
+                ctx.fillStyle = '#713f12';
+                ctx.font = `bold ${Math.max(6, coinRadius * 1.1)}px 'Luckiest Guy'`;
+                ctx.textAlign = 'center';
+                ctx.textBaseline = 'middle';
+                ctx.fillText('$', coinX, coinY);
+                ctx.restore();
+            }
+
+            // Draw Green Pipes & Question Blocks
+            if (segment.propType === 1 || segment.propType === 2) {
+                const side = (segment.index % 2 === 0) ? 1.65 : -1.65;
+                const propX = p.x + (side * p.w);
+                const propY = p.y;
+                const propWidth = p.w * 0.35;
+                const propHeight = propWidth * 1.2;
+
+                ctx.save();
+                if (segment.propType === 1) {
+                    const pipeX = propX - propWidth / 2;
+                    const pipeY = propY - propHeight;
+                    
+                    const pipeGrad = ctx.createLinearGradient(pipeX, 0, pipeX + propWidth, 0);
+                    pipeGrad.addColorStop(0, '#15803d');
+                    pipeGrad.addColorStop(0.3, '#4ade80');
+                    pipeGrad.addColorStop(0.7, '#22c55e');
+                    pipeGrad.addColorStop(1, '#14532d');
+                    
+                    ctx.fillStyle = pipeGrad;
+                    ctx.strokeStyle = '#052e16';
+                    ctx.lineWidth = Math.max(1, propWidth * 0.05);
+                    
+                    ctx.fillRect(pipeX, pipeY, propWidth, propHeight);
+                    ctx.strokeRect(pipeX, pipeY, propWidth, propHeight);
+                    
+                    const rimWidth = propWidth * 1.25;
+                    const rimHeight = propHeight * 0.3;
+                    const rimX = propX - rimWidth / 2;
+                    const rimY = pipeY - rimHeight * 0.4;
+
+                    const rimGrad = ctx.createLinearGradient(rimX, 0, rimX + rimWidth, 0);
+                    rimGrad.addColorStop(0, '#15803d');
+                    rimGrad.addColorStop(0.3, '#86efac');
+                    rimGrad.addColorStop(0.7, '#22c55e');
+                    rimGrad.addColorStop(1, '#052e16');
+
+                    ctx.fillStyle = rimGrad;
+                    ctx.fillRect(rimX, rimY, rimWidth, rimHeight);
+                    ctx.strokeRect(rimX, rimY, rimWidth, rimHeight);
+                } else if (segment.propType === 2) {
+                    const blockWidth = propWidth * 0.8;
+                    const blockHeight = blockWidth;
+                    const blockX = propX - blockWidth / 2;
+                    const blockY = propY - blockHeight * 1.2;
+
+                    ctx.fillStyle = '#f59e0b';
+                    ctx.strokeStyle = '#78350f';
+                    ctx.lineWidth = Math.max(1, blockWidth * 0.06);
+                    ctx.fillRect(blockX, blockY, blockWidth, blockHeight);
+                    ctx.strokeRect(blockX, blockY, blockWidth, blockHeight);
+
+                    ctx.fillStyle = '#ffffff';
+                    ctx.font = `bold ${Math.max(8, blockWidth * 0.65)}px 'Luckiest Guy'`;
+                    ctx.textAlign = 'center';
+                    ctx.textBaseline = 'middle';
+                    ctx.fillText('?', propX, blockY + blockHeight * 0.52);
+                }
+                ctx.restore();
+            }
+        }
+
+        function renderMarioKartCar(ctx) {
+            const centerX = canvas.width / 2;
+            const centerY = canvas.height - 110;
+
+            ctx.save();
+            ctx.translate(centerX, centerY);
+
+            // Car chassis tilt on steer
+            const tiltAngle = currentSteer * 0.12;
+            ctx.rotate(tiltAngle);
+
+            // Shadow
+            ctx.fillStyle = 'rgba(0, 0, 0, 0.4)';
+            ctx.beginPath();
+            ctx.ellipse(0, 45, 95, 28, 0, 0, Math.PI * 2);
+            ctx.fill();
+
+            // Exhaust Flames on Boost
+            if (isBoostActive) {
+                ctx.save();
+                for (let side of [-45, 45]) {
+                    const flameHeight = 40 + Math.random() * 35;
+                    const flameGrad = ctx.createLinearGradient(side, 30, side, 30 + flameHeight);
+                    flameGrad.addColorStop(0, '#60a5fa');
+                    flameGrad.addColorStop(0.5, '#3b82f6');
+                    flameGrad.addColorStop(1, 'transparent');
+
+                    ctx.fillStyle = flameGrad;
+                    ctx.beginPath();
+                    ctx.moveTo(side - 14, 30);
+                    ctx.lineTo(side + 14, 30);
+                    ctx.lineTo(side, 30 + flameHeight);
+                    ctx.closePath();
+                    ctx.fill();
+                }
+                ctx.restore();
+            }
+
+            // Rear Big Wheels
+            ctx.fillStyle = '#1e293b';
+            ctx.strokeStyle = '#0f172a';
+            ctx.lineWidth = 4;
+
+            // Left Wheel
+            ctx.beginPath();
+            ctx.roundRect(-100, 5, 34, 55, 10);
+            ctx.fill();
+            ctx.stroke();
+
+            // Right Wheel
+            ctx.beginPath();
+            ctx.roundRect(66, 5, 34, 55, 10);
+            ctx.fill();
+            ctx.stroke();
+
+            // Yellow Rims
+            ctx.fillStyle = '#facc15';
+            ctx.fillRect(-94, 20, 22, 25);
+            ctx.fillRect(72, 20, 22, 25);
+
+            // Main Red Kart Body
+            ctx.fillStyle = '#dc2626';
+            ctx.strokeStyle = '#7f1d1d';
+            ctx.lineWidth = 5;
+
+            ctx.beginPath();
+            ctx.roundRect(-60, -25, 120, 60, 20);
+            ctx.fill();
+            ctx.stroke();
+
+            // Front Nose
+            ctx.fillStyle = '#ef4444';
+            ctx.beginPath();
+            ctx.roundRect(-42, -55, 84, 40, 15);
+            ctx.fill();
+            ctx.stroke();
+
+            // White M Circle Emblem
+            ctx.fillStyle = '#ffffff';
+            ctx.beginPath();
+            ctx.arc(0, -38, 16, 0, Math.PI * 2);
+            ctx.fill();
+
+            ctx.fillStyle = '#dc2626';
+            ctx.font = 'bold 20px "Luckiest Guy"';
+            ctx.textAlign = 'center';
+            ctx.textBaseline = 'middle';
+            ctx.fillText('M', 0, -36);
+
+            // Mario Cap / Driver Head
+            ctx.fillStyle = '#dc2626'; // Red Cap
+            ctx.beginPath();
+            ctx.arc(0, -65, 24, Math.PI, Math.PI * 2);
+            ctx.fill();
+
+            // Cap Visor
+            ctx.fillRect(-22, -68, 44, 8);
+
+            // Driver Ears & Hair
+            ctx.fillStyle = '#fcd34d';
+            ctx.beginPath();
+            ctx.arc(0, -58, 18, 0, Math.PI);
+            ctx.fill();
+
+            // Dual Exhaust Pipes
+            ctx.fillStyle = '#475569';
+            ctx.strokeStyle = '#1e293b';
+            ctx.lineWidth = 3;
+
+            ctx.fillRect(-48, 25, 16, 12);
+            ctx.strokeRect(-48, 25, 16, 12);
+
+            ctx.fillRect(32, 25, 16, 12);
+            ctx.strokeRect(32, 25, 16, 12);
+
+            ctx.restore();
+        }
+
+        function updateAndRenderParticles(dt) {
+            // Speed Lines Effect
+            if (speed > 4000 || isBoostActive) {
+                ctx.strokeStyle = isBoostActive ? 'rgba(96, 165, 250, 0.6)' : 'rgba(255, 255, 255, 0.4)';
+                ctx.lineWidth = isBoostActive ? 3 : 2;
+
+                speedLines.forEach(line => {
+                    line.z -= speed * dt * 0.15;
+                    if (line.z <= 0) line.z = 1000;
+
+                    const scale = 500 / line.z;
+                    const x = canvas.width / 2 + line.x * scale;
+                    const y = canvas.height / 2 + line.y * scale;
+
+                    ctx.beginPath();
+                    ctx.moveTo(x, y);
+                    ctx.lineTo(x + (x - canvas.width / 2) * 0.15, y + (y - canvas.height / 2) * 0.15);
+                    ctx.stroke();
+                });
+            }
+        }
+    </script>
+</body>
+</html>
